@@ -1,0 +1,7 @@
+# LF everywhere: scripts and Dockerfiles run inside Linux containers even when the repo is
+# cloned on Windows (core.autocrlf would otherwise check them out with CRLF).
+* text=auto eol=lf
+*.dump binary
+*.jpg binary
+*.png binary
+*.ico binary
