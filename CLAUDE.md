@@ -26,7 +26,7 @@ Backend (run from `backend/`; uv manages the venv):
 - `uv run python -m evals.run_retrieval_evals`: free retrieval eval. It writes `evals/results/retrieval.md`/`.json` and fails below `evals/thresholds.toml`. `--gated-only` (used by the CI **Evals** workflow) runs just hybrid+rerank and doesn't overwrite the committed results. `--thresholds FILE` lets you prove the gate fails.
 - `uv run python -m evals.generate_golden --force`: **costs API credits**. It regenerates `evals/golden_set.jsonl`; only rerun it deliberately.
 - `uv run python -m app.llm`: checks the OpenAI key and that the configured models exist.
-- `uv run python -m app.agents.cache`: backfills the semantic cache from approved reports (free, local embeddings); run it after a Redis reset.
+- `uv run python -m app.agents.cache`: reloads every signed-off report into the semantic cache (free, local embeddings). The API also does this automatically at startup when the cache is empty.
 - `uv run python -m evals.run_answer_evals --n 8 --budget-usd 0.50`: **costs API credits**. It runs the full agent graph on golden questions and writes `evals/results/answers.md`/`.json`. In CI it only runs via the manual **Answer evals** workflow (needs an `OPENAI_API_KEY` secret).
 
 Frontend (from `frontend/`): `npm run dev | lint | test | build` (vitest covers the pure `lib/` logic). It runs **Next.js 16**, which is newer than most training data. Follow `frontend/AGENTS.md` and read `frontend/node_modules/next/dist/docs/` before writing frontend code.

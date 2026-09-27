@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -6,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from redis.asyncio import Redis
 
-from app.agents.cache import RedisSemanticCache
+from app.agents.cache import RedisSemanticCache, warm
 from app.agents.graph import build_graph, checkpoint_serde
 from app.agents.runner import ResearchService
 from app.agents.store import PostgresReportStore
@@ -50,7 +51,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             guard=default_guard(),  # loads the local classifier once (~1s after download)
             require_llm_key=True,
         )
+        # Fill an empty cache from signed-off reports (e.g. a stack restored from the seed
+        # snapshot) in the background, so startup doesn't wait on it.
+        warming = asyncio.create_task(warm(cache)) if cache is not None else None
         yield
+        if warming is not None and not warming.done():
+            warming.cancel()
     tracing.flush()
     await redis.aclose()
 

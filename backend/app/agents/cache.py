@@ -112,6 +112,15 @@ class RedisSemanticCache:
             cached_at=datetime.fromtimestamp(float(doc.cached_at), UTC),
         )
 
+    async def is_empty(self) -> bool:
+        try:
+            await self._ensure_index()
+            info = await self._redis.ft(self._index).info()  # type: ignore[no-untyped-call]
+            return int(info["num_docs"]) == 0
+        except Exception:
+            log.warning("semantic cache unavailable", exc_info=True)
+            return False
+
     async def add(self, question: str, report_id: int) -> None:
         try:
             await self._ensure_index()
@@ -130,26 +139,37 @@ class RedisSemanticCache:
             log.warning("semantic cache write failed", exc_info=True)
 
 
-async def _backfill() -> None:
-    """Load approved reports from the last `cache_ttl_days` into the cache (e.g. after a
-    Redis reset). Free: embeddings are local."""
-    from datetime import timedelta
-
+async def _signed_off_questions() -> list[tuple[int, str]]:
     from sqlalchemy import select
 
-    from app.config import get_settings
     from app.db.models import SavedReport
     from app.db.session import get_sessionmaker
+
+    async with get_sessionmaker()() as session:
+        rows = await session.execute(select(SavedReport.id, SavedReport.question))
+        return [(report_id, question) for report_id, question in rows]
+
+
+async def warm(cache: "RedisSemanticCache", *, only_if_empty: bool = True) -> int:
+    """Load every signed-off report into the cache; returns how many were added.
+
+    The app calls this at startup so a fresh stack (e.g. restored from the corpus snapshot)
+    answers already-approved questions without an API key. Free: embeddings are local.
+    """
+    if only_if_empty and not await cache.is_empty():
+        return 0
+    rows = await _signed_off_questions()
+    for report_id, question in rows:
+        await cache.add(question, report_id)
+    return len(rows)
+
+
+async def _backfill() -> None:
+    """Reload every signed-off report into the cache (e.g. after a Redis reset)."""
+    from app.config import get_settings
     from app.rag.embed import get_embedder
 
     settings = get_settings()
-    since = datetime.now(UTC) - timedelta(days=settings.cache_ttl_days)
-    async with get_sessionmaker()() as session:
-        rows = list(
-            await session.execute(
-                select(SavedReport.id, SavedReport.question).where(SavedReport.created_at >= since)
-            )
-        )
     redis = Redis.from_url(settings.redis_url)
     cache = RedisSemanticCache(
         redis,
@@ -158,10 +178,9 @@ async def _backfill() -> None:
         threshold=settings.cache_similarity,
         ttl_days=settings.cache_ttl_days,
     )
-    for report_id, question in rows:
-        await cache.add(question, report_id)
+    added = await warm(cache, only_if_empty=False)
     await redis.aclose()
-    print(f"Cached {len(rows)} approved reports from the last {settings.cache_ttl_days} days")
+    print(f"Cached {added} signed-off reports")
 
 
 if __name__ == "__main__":  # uv run python -m app.agents.cache

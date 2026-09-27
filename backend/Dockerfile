@@ -19,6 +19,9 @@ SentenceTransformer('${EMBEDDING_MODEL}'); \
 CrossEncoder('${RERANKER_MODEL}'); \
 pipeline('text-classification', model='${INJECTION_MODEL}')"
 
+# Models are in the image: never reach out to the Hugging Face Hub at runtime.
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+
 COPY . .
 RUN uv sync --frozen --no-dev
 

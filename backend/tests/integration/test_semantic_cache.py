@@ -46,9 +46,11 @@ async def cache() -> AsyncIterator[RedisSemanticCache]:
 async def test_finds_a_near_duplicate_question_and_ignores_different_ones(
     cache: RedisSemanticCache,
 ) -> None:
-    assert await cache.lookup("What are NVIDIA's export control risks?") is None  # empty
+    assert await cache.is_empty()
+    assert await cache.lookup("What are NVIDIA's export control risks?") is None
 
     await cache.add("What are NVIDIA's export control risks?", report_id=7)
+    assert not await cache.is_empty()
 
     hit = await cache.lookup("what are nvidia's export control risks")
     assert hit is not None
