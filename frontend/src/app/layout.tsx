@@ -49,6 +49,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <Link href="/reports" className="hover:text-pencil">
                 Signed-off reports
               </Link>
+              <Link href="/metrics" className="hover:text-pencil">
+                Metrics
+              </Link>
             </div>
           </nav>
         </header>

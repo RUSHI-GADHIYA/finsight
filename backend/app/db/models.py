@@ -3,6 +3,7 @@ from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     Computed,
     Date,
     DateTime,
@@ -83,3 +84,35 @@ class SavedReport(Base):
     # Cited passages + tables behind the figures (app.agents.state.ReportContext).
     context: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditEvent(Base):
+    """Security- and review-relevant events: blocked inputs, dropped passages, sign-offs."""
+
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    thread_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    event: Mapped[str] = mapped_column(String(40), index=True)
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONB)
+
+
+class ResearchRun(Base):
+    """One research run's cost and latency (the /metrics page reads these)."""
+
+    __tablename__ = "research_runs"
+
+    thread_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    question: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(24))
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)  # until the review pause / end
+    node_timings: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    cache_hit: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), index=True
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

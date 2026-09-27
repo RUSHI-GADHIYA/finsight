@@ -177,6 +177,19 @@ def write_markdown(rows: list[Row], tracker: CostTracker) -> tuple[float, float]
     ]
     (HERE / "results").mkdir(exist_ok=True)
     (HERE / "results" / "answers.md").write_text("\n".join(lines), encoding="utf-8")
+    summary = {  # machine-readable copy for the API's /metrics page
+        "run_date": str(date.today()),
+        "questions": n,
+        "evidence_hit": round(evidence, 4),
+        "citation_hit": round(citation, 4),
+        "faithfulness": round(faithfulness, 4),
+        "judged": total_claims,
+        "mean_cost_usd": round(tracker.spent_usd / n, 6),
+        "mean_seconds": round(sum(r.seconds for r in rows) / n, 1),
+    }
+    (HERE / "results" / "answers.json").write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+    )
     return faithfulness, citation
 
 

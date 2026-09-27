@@ -4,10 +4,10 @@ import Link from "next/link";
 import { type ReactNode, useEffect, useReducer, useRef, useState } from "react";
 
 import { resumeResearch, startResearch } from "@/lib/api";
-import { usd } from "@/lib/format";
+import { date, usd } from "@/lib/format";
 import { initialState, researchReducer } from "@/lib/research";
-import type { SSEEvent } from "@/lib/sse";
-import type { Report, ReviewAction, RunStatus } from "@/lib/types";
+import { APIError, type SSEEvent } from "@/lib/sse";
+import type { CacheHit, Report, ReviewAction, RunStatus } from "@/lib/types";
 
 import { ReportView } from "./ReportView";
 import { TraceTimeline } from "./TraceTimeline";
@@ -50,7 +50,9 @@ export function ResearchSession({
     try {
       await stream(abort.current.signal);
     } catch (e) {
-      if ((e as Error).name !== "AbortError") {
+      if (e instanceof APIError && e.status === 400) {
+        dispatch({ type: "blocked", message: e.message });
+      } else if ((e as Error).name !== "AbortError") {
         dispatch({
           type: "failed",
           message: `Could not reach the research API: ${(e as Error).message}`,
@@ -59,11 +61,11 @@ export function ResearchSession({
     }
   }
 
-  function ask(q: string) {
+  function ask(q: string, fresh = false) {
     const text = q.trim();
     if (text.length < 5) return;
     dispatch({ type: "start", question: text });
-    void run((signal) => startResearch(text, onEvent, signal));
+    void run((signal) => startResearch(text, onEvent, signal, fresh));
   }
 
   function reset() {
@@ -81,12 +83,46 @@ export function ResearchSession({
     void run((signal) => resumeResearch(threadId, action, onEvent, signal));
   }
 
-  if (state.phase === "idle") {
+  if (state.phase === "idle" || state.blocked) {
     return (
       <>
-        <AskForm question={question} setQuestion={setQuestion} onAsk={ask} />
+        {state.blocked && (
+          <div
+            role="alert"
+            className="mb-8 max-w-3xl border-l-2 border-pencil bg-sheet p-4"
+          >
+            <p className="display font-bold uppercase text-pencil">
+              Question not run
+            </p>
+            <p>{state.blocked}</p>
+          </div>
+        )}
+        <AskForm
+          question={state.blocked ? state.question : question}
+          setQuestion={(q) => {
+            if (state.blocked) dispatch({ type: "reset" });
+            setQuestion(q);
+          }}
+          onAsk={ask}
+        />
         {children}
       </>
+    );
+  }
+
+  if (state.cacheHit) {
+    return (
+      <div className="max-w-3xl">
+        <p className="display text-xs font-bold uppercase tracking-widest text-graphite">
+          Question
+        </p>
+        <p className="mb-6 mt-1 text-lg">{state.question}</p>
+        <CacheNotice
+          hit={state.cacheHit}
+          onFresh={() => ask(state.question, true)}
+          onAgain={reset}
+        />
+      </div>
     );
   }
 
@@ -351,6 +387,42 @@ function Outcome({
     <div className="flex flex-wrap items-baseline gap-4 border-l-2 border-pencil bg-sheet p-4">
       <p>{o.message ?? "The run finished without a report."}</p>
       {again}
+    </div>
+  );
+}
+
+function CacheNotice({
+  hit,
+  onFresh,
+  onAgain,
+}: {
+  hit: CacheHit;
+  onFresh: () => void;
+  onAgain: () => void;
+}) {
+  const link = "display text-sm font-semibold uppercase underline";
+  return (
+    <div className="border-l-2 border-ink bg-sheet p-5">
+      <p className="display text-xl font-bold uppercase">
+        Already answered in signed-off report #{hit.report_id}
+      </p>
+      <p className="mt-2 max-w-2xl">
+        A reviewer already signed off a report for a question{" "}
+        {Math.round(hit.similarity * 100)}% similar to yours:{" "}
+        <q className="italic">{hit.question}</q> No agents ran, and this answer
+        cost nothing. Cached {date(hit.cached_at)}.
+      </p>
+      <p className="mt-4 flex flex-wrap gap-5">
+        <Link href={`/reports/${hit.report_id}`} className={link}>
+          Read report #{hit.report_id}
+        </Link>
+        <button className={link} onClick={onFresh}>
+          Run fresh research anyway
+        </button>
+        <button className={link} onClick={onAgain}>
+          Ask another question
+        </button>
+      </p>
     </div>
   );
 }

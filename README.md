@@ -4,10 +4,11 @@ Ask a question like *"Compare NVIDIA and AMD's data-center risk factors and marg
 last 2 years"* and a team of AI agents researches SEC filings and market data, writes a cited
 analyst brief, fact-checks itself, and waits for your approval.
 
-> Status: **Week 4 of 5, in progress**. The research UI works end to end: ask a question,
-> watch the agents work live, read a cited report with a margins chart, then edit and sign
-> off. It runs over 24 real 10-Ks (12 companies, ~4.4k passages), and a report costs about
-> 1-4 cents. Guardrails, tracing and a semantic cache are next. See the roadmap below.
+> Status: **Week 4 of 5 done**. Ask a question in the UI, watch the agents work live, read
+> a cited report with a margins chart, then edit and sign off. Around that: prompt-injection
+> guardrails (on questions *and* retrieved filing text), PII redaction, an audit log, a
+> semantic cache of signed-off reports, per-run cost/latency metrics, and Langfuse tracing.
+> It runs over 24 real 10-Ks (12 companies, ~4.4k passages), and a report costs about 2-4 cents.
 
 ![A signed-off FinSight report: red tick marks for verified claims, margins chart from SEC XBRL](docs/report.jpg)
 
@@ -36,7 +37,7 @@ Prerequisites: Docker, [uv](https://docs.astral.sh/uv/), Node 22.
 
 ```bash
 cp .env.example .env                  # set SEC_USER_AGENT (with a contact email) and OPENAI_API_KEY
-docker compose up -d --wait postgres redis
+docker compose up -d --wait postgres redis   # Redis 8: vector search for the cache
 
 cd backend
 uv sync
@@ -66,6 +67,19 @@ The Next.js app (`frontend/`) is designed as an auditor's workpaper:
   reports get a stamp and appear under Signed-off reports.
 - **Reopening a run:** each run has its own URL (`/research/<id>`), restored from the
   Postgres checkpoint, so a refresh or a server restart mid-review doesn't lose the review.
+
+## Production concerns
+
+| Concern | What it does | How it was checked |
+|---|---|---|
+| **Prompt injection** | A local classifier ([`protectai/deberta-v3-base-prompt-injection-v2`](https://huggingface.co/protectai/deberta-v3-base-prompt-injection-v2), free, CPU) screens the question *and* every retrieved 10-K passage. Flagged questions get a 400; flagged passages are dropped before the analyst sees them. | Scored all 4,361 ingested passages: 1 false positive at threshold 0.9, **none at 0.99** (the default). A planted "ignore your instructions" passage was retrieved at rank 8 of 30 and dropped (score 0.99995). |
+| **PII** | Emails, phone numbers, SSNs and Luhn-valid card numbers are redacted from questions before they reach the LLM or the database. Long financial figures are left alone. | Unit tests |
+| **Audit log** | `audit_log` records blocked questions, dropped passages, redactions, budget stops, and every approve/edit/reject. | Integration test on Postgres |
+| **Semantic cache** | Signed-off reports are cached in Redis 8 vector search (local bge embeddings). A question ≥ 0.92 cosine-similar to one already approved returns that report for $0, with a "Run fresh anyway" option. Only human-approved answers are ever reused. | A close rephrase scored 0.996 (hit). "NVIDIA *and Intel*" vs "NVIDIA *and AMD*" scored 0.865 (miss). That near-miss is why the threshold isn't lower. |
+| **Cost and latency** | `research_runs` stores cost, total latency and per-agent timings for every run. `/metrics` shows spend, p50/p95 time to review, cache-hit rate, guardrail counts and the latest eval scores. | Live run: NFLX question $0.022, 60s (analyst 28s, critic 13s, filings 15s including passage screening) |
+| **Tracing** | Langfuse Cloud: one trace per run, a span per agent, and a generation per LLM call with tokens and cost. Off until `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` are set. | Unit-tested against the SDK's interface; not yet run against a live Langfuse project |
+
+![Metrics page: runs, guardrails, sign-off counts](docs/metrics.jpg)
 
 ## Agents
 
@@ -163,9 +177,9 @@ Try it without a client: `npx @modelcontextprotocol/inspector uv run python -m a
 - [x] **Week 3: Agents.** LangGraph supervisor → parallel filings/market → analyst ⇄ critic →
       human approval (`interrupt`, Postgres checkpoints), SSE streaming, agents as MCP clients,
       per-run cost cap, answer eval
-- [ ] **Week 4: UI and production.** ✓ Research UI (live agent trace, cited report, charts,
-      edit and sign-off, reopen from checkpoint). Next: guardrails, audit log, Langfuse,
-      semantic cache, metrics
+- [x] **Week 4: UI and production.** Research UI (live agent trace, cited report, charts,
+      edit and sign-off, reopen from checkpoint); injection and PII guardrails, audit log,
+      semantic cache, run metrics page, Langfuse tracing
 - [ ] **Week 5: Ship.** Eval-gated CI, deployment (Vercel + Fly.io + Neon), demo video
 
 ## Tech stack

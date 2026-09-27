@@ -90,6 +90,20 @@ def write_report(results: dict[str, Scores], n: int) -> Path:
     out = HERE / "results" / "retrieval.md"
     out.parent.mkdir(exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")
+    # Machine-readable copy for the API's /metrics page.
+    summary = {
+        "run_date": str(date.today()),
+        "questions": n,
+        "configs": {
+            name: {
+                "hit_at_5": round(s.hit_at_5, 4),
+                "mrr_at_10": round(s.mrr_at_10, 4),
+                "seconds_per_query": round(s.seconds_per_query, 3),
+            }
+            for name, s in results.items()
+        },
+    }
+    out.with_suffix(".json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     return out
 
 

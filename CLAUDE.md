@@ -24,6 +24,7 @@ Backend (run from `backend/`; uv manages the venv):
 - `uv run python -m evals.run_retrieval_evals`: free retrieval eval. It writes `evals/results/retrieval.md` and fails below `evals/thresholds.toml`.
 - `uv run python -m evals.generate_golden --force`: **costs API credits**. It regenerates `evals/golden_set.jsonl`; only rerun it deliberately.
 - `uv run python -m app.llm`: checks the OpenAI key and that the configured models exist.
+- `uv run python -m app.agents.cache`: backfills the semantic cache from approved reports (free, local embeddings); run it after a Redis reset.
 - `uv run python -m evals.run_answer_evals --n 8 --budget-usd 0.50`: **costs API credits**. It runs the full agent graph on golden questions and writes `evals/results/answers.md`. It is not in CI.
 
 Frontend (from `frontend/`): `npm run dev | lint | test | build` (vitest covers the pure `lib/` logic). It runs **Next.js 16**, which is newer than most training data. Follow `frontend/AGENTS.md` and read `frontend/node_modules/next/dist/docs/` before writing frontend code.
@@ -55,4 +56,10 @@ Frontend (from `frontend/`): `npm run dev | lint | test | build` (vitest covers 
   - `lib/research.ts` is a pure reducer from events to UI state. Its test replays a real recorded run (`lib/__fixtures__/research-run.json`), so update the fixture if event payloads change.
   - Server pages call `await connection()` so they are never prerendered at build time (CI has no API).
   - The design tokens (ledger/sheet/ink/graphite/rule/pencil) live in `globals.css`. The red "pencil" is reserved for tick marks, flags and sign-off.
+- **Guardrails** (`app/guardrails/`): `ResearchService.screen()` redacts PII and blocks injection-like questions (400) before a run. The `filings` node drops flagged passages and emits a `guardrail` event, which the runner writes to `audit_log`.
+  - The threshold (0.99) was measured on the whole corpus. If you change the model or threshold, re-measure false positives on real passages.
+  - The classifier loads at API startup (~740 MB download once). Tests use `FakeClassifier`.
+- **Runner is the only writer of ops data** (`app/agents/runner.py`): `research_runs`, `audit_log`, Langfuse traces and cache writes all come from stream events there. Nodes only emit events. Ops writes are best-effort and never fail a run.
+  - Langfuse uses explicit `start_observation` objects, not "current" context managers, because OTel context doesn't survive the async generator's `yield`s.
+- **Semantic cache** only ever stores human-approved reports (added in `_after_review`). It needs Redis 8 (bundled query engine); `docker-compose.yml` and CI use `redis:8`.
 - **Config:** `app/config.py` (pydantic-settings) reads `.env` from either `backend/` or the repo root.

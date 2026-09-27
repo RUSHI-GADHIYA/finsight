@@ -8,8 +8,11 @@ from langgraph.types import Command
 from app.agents.graph import ResearchGraph, build_graph, checkpoint_serde
 from app.agents.nodes import AgentDeps, check_citations, figure_matches
 from app.agents.state import ClaimVerdict, Critique, Figure, Report, ResearchPlan, ResearchState
+from app.guardrails.injection import InjectionGuard
 from tests.agent_fakes import (
     FYE,
+    POISON,
+    FakeClassifier,
     FakeLLM,
     FakeStore,
     FakeTools,
@@ -222,3 +225,21 @@ def test_check_citations_flags_unsourced_and_wrong_figures() -> None:
     assert set(failures) == {2, 3}
     assert failures[2].reason == "no source cited"
     assert "gross_margin_pct" in failures[3].reason
+
+
+async def test_planted_injection_in_a_filing_is_dropped_before_the_analyst() -> None:
+    llm = FakeLLM(
+        {
+            ResearchPlan: [plan("NVDA")],
+            Report: [report(cited("NVIDIA faces export controls.", 101))],
+            Critique: [all_supported(1)],
+        }
+    )
+    graph, deps = make(llm, FakeTools(poisoned={102}))
+    deps.guard = InjectionGuard(FakeClassifier(), threshold=0.9)
+
+    state = await run(graph, deps, {"question": QUESTION})
+
+    assert [c.citation.chunk_id for c in state["evidence"]] == [101]
+    assert POISON not in llm.calls["analyst"][0]  # the model never saw the planted text
+    assert any("Dropped passage #102" in e for e in state["errors"])

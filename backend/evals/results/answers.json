@@ -1,0 +1,10 @@
+{
+  "run_date": "2026-09-26",
+  "questions": 8,
+  "evidence_hit": 0.875,
+  "citation_hit": 0.875,
+  "faithfulness": 1.0,
+  "judged": 47,
+  "mean_cost_usd": 0.014513,
+  "mean_seconds": 39.0
+}

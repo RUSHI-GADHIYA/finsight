@@ -1,5 +1,16 @@
 // Server-sent events over POST. EventSource only does GET, so read the fetch body stream.
 
+/** A request the API refused before streaming (e.g. a question blocked by a guardrail). */
+export class APIError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "APIError";
+  }
+}
+
 export interface SSEEvent {
   event: string;
   data: unknown;
@@ -62,7 +73,7 @@ export async function streamSSE(
     } catch {
       // keep the status line
     }
-    throw new Error(detail);
+    throw new APIError(resp.status, detail);
   }
   const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
   let buffer = "";

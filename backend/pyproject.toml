@@ -24,6 +24,8 @@ dependencies = [
     "psycopg[binary]>=3.3.6",
     "yfinance>=1.7.0",
     "sse-starlette>=3.4.11",
+    "redis>=8.1.0",
+    "langfuse>=4.15.6",
 ]
 
 # CPU-only torch: ~1GB smaller than the default CUDA wheels on Linux (Docker/CI).

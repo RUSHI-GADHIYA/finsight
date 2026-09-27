@@ -1,4 +1,4 @@
-import type { ReviewAction, RunStatus, SavedReport } from "./types";
+import type { Metrics, ReviewAction, RunStatus, SavedReport } from "./types";
 import { streamSSE, type SSEEvent } from "./sse";
 
 // The browser calls FastAPI directly (CORS), so SSE isn't buffered by a proxy.
@@ -18,7 +18,8 @@ export const startResearch = (
   question: string,
   onEvent: (e: SSEEvent) => void,
   signal?: AbortSignal,
-) => streamSSE(`${API_URL}/research`, { question }, onEvent, signal);
+  fresh = false,
+) => streamSSE(`${API_URL}/research`, { question, fresh }, onEvent, signal);
 
 export const resumeResearch = (
   threadId: string,
@@ -38,3 +39,4 @@ export const listReports = () =>
   getJSON<SavedReport[]>("/reports", SERVER_API_URL);
 export const getReport = (id: string) =>
   getJSON<SavedReport>(`/reports/${encodeURIComponent(id)}`, SERVER_API_URL);
+export const getMetrics = () => getJSON<Metrics>("/metrics", SERVER_API_URL);

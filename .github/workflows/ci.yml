@@ -21,8 +21,13 @@ jobs:
         ports: ["5432:5432"]
         options: >-
           --health-cmd "pg_isready -U finsight" --health-interval 5s --health-retries 10
+      redis:
+        # Redis 8 bundles the query engine (vector search) the semantic cache uses.
+        image: redis:8
+        ports: ["6379:6379"]
     env:
       DATABASE_URL: postgresql+asyncpg://finsight:finsight@localhost:5432/finsight
+      REDIS_URL: redis://localhost:6379/0
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6

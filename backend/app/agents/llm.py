@@ -79,6 +79,8 @@ class OpenAIAgentLLM:
                 "model": model,
                 "call_usd": round(cost, 6),
                 "spent_usd": round(self.tracker.spent_usd, 6),
+                "input_tokens": response.usage.input_tokens if response.usage else 0,
+                "output_tokens": response.usage.output_tokens if response.usage else 0,
             }
         )
         if response.output_parsed is None:

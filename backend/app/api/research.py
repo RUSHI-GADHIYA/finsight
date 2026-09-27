@@ -13,7 +13,6 @@ from collections.abc import AsyncIterator
 from typing import Annotated, Literal, Self
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from langgraph.types import Command
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette import EventSourceResponse
@@ -44,6 +43,7 @@ Reports = Annotated[PostgresReportStore, Depends(get_reports)]
 
 class ResearchRequest(BaseModel):
     question: str = Field(min_length=5, max_length=1000)
+    fresh: bool = False  # skip the semantic cache of approved reports
 
 
 class ResumeRequest(BaseModel):
@@ -64,8 +64,15 @@ async def _sse(events: AsyncIterator[Event]) -> AsyncIterator[dict[str, str]]:
 
 @router.post("/research")
 async def research(body: ResearchRequest, service: Service) -> EventSourceResponse:
+    screened = await service.screen(body.question)
+    if screened.blocked:
+        raise HTTPException(
+            400,
+            "This question looks like an attempt to instruct the AI rather than a research "
+            "question, so it was not run. Rephrase it as a question about the filings.",
+        )
     thread_id = uuid.uuid4().hex
-    return EventSourceResponse(_sse(service.stream(thread_id, {"question": body.question})))
+    return EventSourceResponse(_sse(service.start(thread_id, screened.question, fresh=body.fresh)))
 
 
 @router.post("/research/{thread_id}/resume")
@@ -73,7 +80,7 @@ async def resume(thread_id: str, body: ResumeRequest, service: Service) -> Event
     if not await service.awaiting_approval(thread_id):
         raise HTTPException(409, "This research run is not waiting for approval")
     decision = body.model_dump(mode="json", exclude_none=True)
-    return EventSourceResponse(_sse(service.stream(thread_id, Command(resume=decision))))
+    return EventSourceResponse(_sse(service.resume(thread_id, decision)))
 
 
 @router.get("/research/{thread_id}")

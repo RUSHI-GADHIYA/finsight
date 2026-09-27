@@ -2,7 +2,7 @@
 // recorded event sequence (see research.test.ts).
 
 import type { SSEEvent } from "./sse";
-import type { PendingReview, RunStatus } from "./types";
+import type { CacheHit, PendingReview, RunStatus } from "./types";
 
 export const STEPS = [
   "supervisor",
@@ -43,6 +43,8 @@ export interface ResearchState {
   outcome: Outcome | null;
   error: string | null;
   restored: boolean; // hydrated from a checkpoint rather than streamed
+  cacheHit: CacheHit | null; // answered from a signed-off report, no agents ran
+  blocked: string | null; // the API refused the question (guardrail)
 }
 
 export type ResearchAction =
@@ -51,6 +53,7 @@ export type ResearchAction =
   | { type: "resume" }
   | { type: "event"; event: SSEEvent; at: number }
   | { type: "failed"; message: string }
+  | { type: "blocked"; message: string }
   | { type: "hydrate"; status: RunStatus };
 
 function emptySteps(): Record<StepName, Step> {
@@ -71,6 +74,8 @@ export function initialState(question = ""): ResearchState {
     outcome: null,
     error: null,
     restored: false,
+    cacheHit: null,
+    blocked: null,
   };
 }
 
@@ -153,6 +158,8 @@ function onEvent(
           message: (d.message as string) ?? null,
         },
       };
+    case "cache_hit":
+      return { ...state, cacheHit: d as unknown as CacheHit };
     case "error":
       return {
         ...state,
@@ -179,6 +186,8 @@ export function researchReducer(
       return onEvent(state, action.event, action.at);
     case "failed":
       return { ...state, phase: "error", error: action.message };
+    case "blocked":
+      return { ...state, phase: "error", blocked: action.message };
     case "hydrate": {
       // Reopened from a checkpoint: no per-step history, only where the run stands now.
       const s = action.status;

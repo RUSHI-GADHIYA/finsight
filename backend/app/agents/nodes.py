@@ -26,6 +26,7 @@ from app.agents.state import (
     ResearchState,
 )
 from app.agents.tools import ResearchTools, ToolCallError
+from app.guardrails.injection import InjectionGuard
 from app.rag.financials import FinancialYear
 from app.rag.market import PriceSummary
 from app.rag.retrieval import RetrievedChunk
@@ -63,6 +64,7 @@ class AgentDeps:
     store: ReportStore
     thread_id: str
     max_revisions: int = 2
+    guard: InjectionGuard | None = None  # screens retrieved passages; None = off
 
 
 Ctx = Runtime[AgentDeps]
@@ -169,6 +171,32 @@ async def filings(state: ResearchState, runtime: Ctx) -> dict[str, Any]:
         except ToolCallError as exc:
             errors.append(str(exc))
     evidence = _round_robin(results)[:MAX_EVIDENCE]
+
+    # Filing text is untrusted input too: drop passages that read like instructions to the
+    # model before the analyst ever sees them.
+    guard = runtime.context.guard
+    if guard is not None and evidence:
+        flags = await guard.flagged([c.text for c in evidence])
+        kept = []
+        for chunk, score in zip(evidence, flags, strict=True):
+            if score is None:
+                kept.append(chunk)
+                continue
+            cit = chunk.citation
+            errors.append(
+                f"Dropped passage #{cit.chunk_id} ({cit.ticker} {cit.section}): it reads like "
+                "instructions to an AI, a possible prompt injection"
+            )
+            runtime.stream_writer(
+                {
+                    "type": "guardrail",
+                    "kind": "passage_dropped",
+                    "chunk_id": cit.chunk_id,
+                    "ticker": cit.ticker,
+                    "score": round(score, 4),
+                }
+            )
+        evidence = kept
     return {"evidence": evidence, "errors": errors}
 
 

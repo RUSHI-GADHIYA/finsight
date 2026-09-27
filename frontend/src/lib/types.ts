@@ -113,3 +113,49 @@ export type ReviewAction =
   | { action: "approve" }
   | { action: "reject" }
   | { action: "edit"; report: Report };
+
+export interface CacheHit {
+  report_id: number;
+  question: string;
+  similarity: number;
+  cached_at: string;
+}
+
+export interface RunPoint {
+  created_at: string;
+  status: string;
+  cost_usd: number;
+  latency_ms: number | null;
+  cache_hit: boolean;
+}
+
+export interface Metrics {
+  runs: number;
+  total_cost_usd: number;
+  mean_cost_usd: number;
+  latency_p50_ms: number | null;
+  latency_p95_ms: number | null;
+  cache_hit_rate: number;
+  guardrails: Record<string, number>;
+  reviews: Record<string, number>;
+  recent: RunPoint[];
+  evals: {
+    retrieval?: {
+      run_date: string;
+      questions: number;
+      configs: Record<
+        string,
+        { hit_at_5: number; mrr_at_10: number; seconds_per_query: number }
+      >;
+    };
+    answers?: {
+      run_date: string;
+      questions: number;
+      evidence_hit: number;
+      citation_hit: number;
+      faithfulness: number;
+      judged: number;
+      mean_cost_usd: number;
+    };
+  };
+}

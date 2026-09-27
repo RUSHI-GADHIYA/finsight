@@ -39,6 +39,23 @@ class Settings(BaseSettings):
     # SSE streams aren't buffered by a proxy).
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Guardrails: local prompt-injection classifier on the question and retrieved passages.
+    guardrails_enabled: bool = True
+    injection_model: str = "protectai/deberta-v3-base-prompt-injection-v2"
+    # Probability of the INJECTION label. Measured 2026-09-27 on all 4,361 ingested passages:
+    # 1 false positive at 0.9, none at 0.99; planted injections scored > 0.9999.
+    injection_threshold: float = 0.99
+
+    # Semantic cache of human-approved reports (Redis vector search).
+    cache_enabled: bool = True
+    cache_similarity: float = 0.92  # cosine similarity of question embeddings
+    cache_ttl_days: int = 7
+
+    # Langfuse Cloud tracing; off unless both keys are set.
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = "https://cloud.langfuse.com"
+
     @property
     def checkpoint_database_url(self) -> str:
         """LangGraph's Postgres checkpointer uses psycopg, which wants a plain libpq URL."""
