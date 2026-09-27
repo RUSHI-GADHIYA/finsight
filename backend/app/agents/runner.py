@@ -35,6 +35,11 @@ log = logging.getLogger(__name__)
 
 Event = dict[str, Any]  # {"event": type, "data": payload}
 
+NO_KEY_MESSAGE = (
+    "New research needs an OpenAI API key: add OPENAI_API_KEY to .env and restart the API. "
+    "Signed-off reports, search and cached answers work without one."
+)
+
 
 class Screened(BaseModel):
     question: str  # with any personal data redacted
@@ -126,6 +131,8 @@ class ResearchService:
     cache: SemanticCache | None = None
     guard: InjectionGuard | None = None
     tracer_factory: Callable[..., RunTracer] = make_tracer
+    # The app sets this; tests run with a fake LLM and no key.
+    require_llm_key: bool = False
 
     def _config(self, thread_id: str) -> Any:
         return {"configurable": {"thread_id": thread_id}}
@@ -194,6 +201,11 @@ class ResearchService:
                     },
                 }
                 return
+        if self.require_llm_key and not get_settings().openai_api_key:
+            # Browsing, search and cached answers work without a key; new research doesn't.
+            yield {"event": "run_started", "data": {"thread_id": thread_id}}
+            yield {"event": "error", "data": {"message": NO_KEY_MESSAGE}}
+            return
         await self.ops.run_started(thread_id, question)
         async for event in self._run(thread_id, {"question": question}, question, "research"):
             yield event

@@ -21,9 +21,11 @@ const EXAMPLES = [
 export function ResearchSession({
   initial,
   children,
+  llmConfigured = true,
 }: {
   initial?: RunStatus;
   children?: ReactNode; // shown under the question form, e.g. recent reports
+  llmConfigured?: boolean;
 }) {
   const [state, dispatch] = useReducer(researchReducer, undefined, () =>
     initial
@@ -35,11 +37,15 @@ export function ResearchSession({
   const abort = useRef<AbortController | null>(null);
   useEffect(() => () => abort.current?.abort(), []);
 
+  const runId = useRef<string | null>(null);
   const onEvent = (event: SSEEvent) => {
     if (event.event === "run_started") {
-      // Keep the run addressable across refreshes without remounting this component.
-      const id = (event.data as { thread_id: string }).thread_id;
-      window.history.replaceState(null, "", `/research/${id}`);
+      runId.current = (event.data as { thread_id: string }).thread_id;
+    } else if (event.event === "node_started" && runId.current) {
+      // Once agents are actually running, make the run addressable across refreshes
+      // (without remounting this component). Cache hits never get here: no run to reopen.
+      window.history.replaceState(null, "", `/research/${runId.current}`);
+      runId.current = null;
     }
     dispatch({ type: "event", event, at: Date.now() });
   };
@@ -98,6 +104,7 @@ export function ResearchSession({
           </div>
         )}
         <AskForm
+          llmConfigured={llmConfigured}
           question={state.blocked ? state.question : question}
           setQuestion={(q) => {
             if (state.blocked) dispatch({ type: "reset" });
@@ -203,10 +210,12 @@ function AskForm({
   question,
   setQuestion,
   onAsk,
+  llmConfigured,
 }: {
   question: string;
   setQuestion: (q: string) => void;
   onAsk: (q: string) => void;
+  llmConfigured: boolean;
 }) {
   return (
     <section className="max-w-3xl">
@@ -273,6 +282,15 @@ function AskForm({
       <p className="mt-6 font-mono text-xs text-graphite">
         A run takes 1–2 minutes and costs about 1–4¢.
       </p>
+      {!llmConfigured && (
+        <p className="mt-4 max-w-2xl border-l-2 border-pencil pl-3 text-sm">
+          Live research is off: the API has no OpenAI key. Questions that match
+          a signed-off report are still answered from it, and everything else
+          here works. To run new research, add{" "}
+          <code className="font-mono">OPENAI_API_KEY</code> to{" "}
+          <code className="font-mono">.env</code> and restart the API.
+        </p>
+      )}
     </section>
   );
 }

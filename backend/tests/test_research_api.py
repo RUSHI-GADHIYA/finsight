@@ -233,3 +233,18 @@ async def test_run_records_cost_timings_audit_and_trace_then_caches_approval(
         (await client.post("/research", json={"question": question, "fresh": True})).text
     )
     assert fresh[-1][0] == "awaiting_approval"
+
+
+async def test_research_without_an_api_key_explains_what_still_works(
+    service: ResearchService, client: httpx.AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "openai_api_key", "")
+    service.require_llm_key = True
+    events = parse_sse((await client.post("/research", json={"question": "NVDA risks?"})).text)
+
+    assert [e for e, _ in events] == ["run_started", "error"]
+    assert "OPENAI_API_KEY" in events[-1][1]["message"]
+    ops = service.ops
+    assert isinstance(ops, FakeOps) and ops.runs == {}  # nothing ran, nothing recorded

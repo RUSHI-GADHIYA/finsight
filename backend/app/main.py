@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             ops=ops,
             cache=cache,
             guard=default_guard(),  # loads the local classifier once (~1s after download)
+            require_llm_key=True,
         )
         yield
     tracing.flush()
@@ -68,5 +69,5 @@ app.include_router(metrics.router)
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, str | bool]:
+    return {"status": "ok", "llm_configured": bool(get_settings().openai_api_key)}

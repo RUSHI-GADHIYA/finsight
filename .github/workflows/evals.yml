@@ -1,0 +1,50 @@
+name: Evals
+
+# Retrieval quality gate: restores the bundled corpus snapshot and fails if hybrid + rerank
+# drops below evals/thresholds.toml. Free: embeddings and reranker run locally on the runner.
+on:
+  push:
+    branches: [main]
+    paths: ["backend/app/**", "backend/evals/**", "backend/seed/**", "backend/pyproject.toml"]
+  pull_request:
+    paths: ["backend/app/**", "backend/evals/**", "backend/seed/**", "backend/pyproject.toml"]
+  workflow_dispatch:
+
+jobs:
+  retrieval:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: finsight
+          POSTGRES_PASSWORD: finsight
+          POSTGRES_DB: finsight
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U finsight" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://finsight:finsight@localhost:5432/finsight
+      HF_HOME: /home/runner/.cache/huggingface
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run alembic upgrade head
+      - name: Restore corpus snapshot
+        run: >-
+          docker run --rm --network host -v "$PWD/seed:/seed:ro" -v "$PWD/scripts:/scripts:ro"
+          -e PGURL=postgresql://finsight:finsight@localhost:5432/finsight
+          pgvector/pgvector:pg17 sh /scripts/restore_seed.sh
+      - name: Cache local models (bge-small + bge-reranker)
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/huggingface
+          key: hf-${{ hashFiles('backend/app/config.py') }}
+      - name: Retrieval gate (hybrid + rerank)
+        run: uv run python -m evals.run_retrieval_evals --gated-only

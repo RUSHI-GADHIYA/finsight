@@ -1,0 +1,58 @@
+name: Answer evals (manual, costs API credits)
+
+# Runs the full agent graph on a few golden questions and grades the reports. Never runs
+# automatically. Needs an OPENAI_API_KEY repository secret; spend is hard-capped below.
+on:
+  workflow_dispatch:
+    inputs:
+      questions:
+        description: Golden questions to run
+        default: "4"
+      budget_usd:
+        description: Hard spend cap (USD)
+        default: "0.25"
+
+jobs:
+  answers:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: finsight
+          POSTGRES_PASSWORD: finsight
+          POSTGRES_DB: finsight
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U finsight" --health-interval 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://finsight:finsight@localhost:5432/finsight
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      HF_HOME: /home/runner/.cache/huggingface
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run alembic upgrade head
+      - name: Restore corpus snapshot
+        run: >-
+          docker run --rm --network host -v "$PWD/seed:/seed:ro" -v "$PWD/scripts:/scripts:ro"
+          -e PGURL=postgresql://finsight:finsight@localhost:5432/finsight
+          pgvector/pgvector:pg17 sh /scripts/restore_seed.sh
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/.cache/huggingface
+          key: hf-${{ hashFiles('backend/app/config.py') }}
+      - name: Answer eval (gated by thresholds.toml [answers])
+        run: >-
+          uv run python -m evals.run_answer_evals
+          --n ${{ inputs.questions }} --budget-usd ${{ inputs.budget_usd }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: answer-eval
+          path: backend/evals/results/answers.*

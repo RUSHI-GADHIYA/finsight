@@ -15,23 +15,64 @@ services:
       retries: 10
 
   redis:
-    image: redis:8
+    image: redis:8 # bundles the query engine (vector search) the semantic cache uses
     ports:
       - "6379:6379"
 
-  backend:
+  # --- full stack: docker compose --profile app up --build -------------------------------
+  migrate:
+    image: finsight-backend
     build: ./backend
-    env_file: .env
+    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://finsight:finsight@postgres:5432/finsight
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["app"]
+
+  seed: # restores the bundled 10-K corpus + signed-off reports into an empty database
+    image: pgvector/pgvector:pg17
+    command: ["sh", "/scripts/restore_seed.sh"]
+    environment:
+      PGURL: postgresql://finsight:finsight@postgres:5432/finsight
+    volumes:
+      - ./backend/seed:/seed:ro
+      - ./backend/scripts:/scripts:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    profiles: ["app"]
+
+  backend:
+    image: finsight-backend
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false # without a key: browse reports, search, cached answers
     environment:
       DATABASE_URL: postgresql+asyncpg://finsight:finsight@postgres:5432/finsight
       REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
     depends_on:
-      postgres:
-        condition: service_healthy
+      seed:
+        condition: service_completed_successfully
       redis:
         condition: service_started
+    profiles: ["app"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000 # the browser calls the API directly
+    environment:
+      API_URL: http://backend:8000 # server-side rendering calls it inside the network
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
     profiles: ["app"]
 
 volumes:

@@ -5,10 +5,13 @@ hybrid + cross-encoder rerank on Hit@5 and MRR@10. Searches are filtered to the 
 ticker, as the agents will do. Exits non-zero if hybrid+rerank falls below thresholds.toml.
 
     uv run python -m evals.run_retrieval_evals
+    uv run python -m evals.run_retrieval_evals --thresholds strict.toml   # prove the gate fails
 """
 
+import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 import tomllib
@@ -57,7 +60,7 @@ async def evaluate(golden: list[dict[str, object]], mode: SearchMode, rerank: bo
     return Scores(hits / n, reciprocal_ranks / n, (time.perf_counter() - start) / n)
 
 
-async def run() -> dict[str, Scores]:
+async def run(configs: list[tuple[str, SearchMode, bool]]) -> dict[str, Scores]:
     golden = [
         json.loads(line)
         for line in (HERE / "golden_set.jsonl").read_text(encoding="utf-8").splitlines()
@@ -66,7 +69,7 @@ async def run() -> dict[str, Scores]:
     async with get_sessionmaker()() as session:
         await search(session, "warm up", top_k=1, rerank=True)
     results = {}
-    for name, mode, rerank in CONFIGS:
+    for name, mode, rerank in configs:
         results[name] = await evaluate(golden, mode, rerank)
         print(f"{name:16} Hit@5={results[name].hit_at_5:.2f} MRR@10={results[name].mrr_at_10:.2f}")
     return results
@@ -107,15 +110,46 @@ def write_report(results: dict[str, Scores], n: int) -> Path:
     return out
 
 
-def main() -> None:
-    results = asyncio.run(run())
-    n = len((HERE / "golden_set.jsonl").read_text(encoding="utf-8").splitlines())
-    print(f"Wrote {write_report(results, n)}")
+GATED = "hybrid + rerank"  # the configuration the agents use
 
-    thresholds = tomllib.loads((HERE / "thresholds.toml").read_text(encoding="utf-8"))["retrieval"]
-    best = results["hybrid + rerank"]
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--thresholds", type=Path, default=HERE / "thresholds.toml")
+    parser.add_argument(
+        "--gated-only",
+        action="store_true",
+        help=f"evaluate only '{GATED}' (the CI gate), skipping the ablation configs",
+    )
+    args = parser.parse_args()
+
+    configs = [c for c in CONFIGS if c[0] == GATED] if args.gated_only else CONFIGS
+    results = asyncio.run(run(configs))
+    n = len((HERE / "golden_set.jsonl").read_text(encoding="utf-8").splitlines())
+    if not args.gated_only:  # the committed ablation table needs all configs
+        print(f"Wrote {write_report(results, n)}")
+    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+        rows = [
+            f"### Retrieval eval ({n} questions)",
+            "",
+            "| Config | Hit@5 | MRR@10 |",
+            "|---|---|---|",
+            *(
+                f"| {name} | {sc.hit_at_5:.2f} | {sc.mrr_at_10:.2f} |"
+                for name, sc in results.items()
+            ),
+        ]
+        with open(summary, "a", encoding="utf-8") as f:
+            f.write("\n".join(rows) + "\n")
+
+    thresholds = tomllib.loads(args.thresholds.read_text(encoding="utf-8"))["retrieval"]
+    best = results[GATED]
     if best.hit_at_5 < thresholds["min_hit_at_5"] or best.mrr_at_10 < thresholds["min_mrr_at_10"]:
-        sys.exit(f"FAIL: hybrid + rerank below thresholds {thresholds}")
+        sys.exit(
+            f"FAIL: {GATED} Hit@5={best.hit_at_5:.2f} MRR@10={best.mrr_at_10:.2f} "
+            f"is below the thresholds {thresholds}"
+        )
+    print(f"PASS: {GATED} meets the thresholds {thresholds}")
 
 
 if __name__ == "__main__":

@@ -40,3 +40,8 @@ export const listReports = () =>
 export const getReport = (id: string) =>
   getJSON<SavedReport>(`/reports/${encodeURIComponent(id)}`, SERVER_API_URL);
 export const getMetrics = () => getJSON<Metrics>("/metrics", SERVER_API_URL);
+export const getHealth = () =>
+  getJSON<{ status: string; llm_configured: boolean }>(
+    "/health",
+    SERVER_API_URL,
+  );

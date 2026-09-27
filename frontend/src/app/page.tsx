@@ -2,7 +2,7 @@ import { connection } from "next/server";
 
 import { RecentReports } from "@/components/RecentReports";
 import { ResearchSession } from "@/components/ResearchSession";
-import { listReports } from "@/lib/api";
+import { getHealth, listReports } from "@/lib/api";
 import type { SavedReport } from "@/lib/types";
 
 export default async function Home() {
@@ -13,8 +13,9 @@ export default async function Home() {
   } catch {
     recent = null; // API down: the page still works, the list says so
   }
+  const health = await getHealth().catch(() => null);
   return (
-    <ResearchSession>
+    <ResearchSession llmConfigured={health?.llm_configured ?? true}>
       <RecentReports reports={recent} />
     </ResearchSession>
   );
