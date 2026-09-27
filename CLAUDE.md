@@ -4,13 +4,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-FinSight is a portfolio app for an AI Engineer job search. It is a multi-agent financial research copilot built on SEC filings. The full 5-week roadmap is in `README.md` (Weeks 1–2 are done). Keep the recruiter-facing goals in mind: agents (LangGraph), MCP, hybrid RAG, evals, observability, guardrails, and full-stack delivery.
+FinSight is a portfolio app for an AI Engineer job search. It is a multi-agent financial research copilot built on SEC filings. The 5-week roadmap in `README.md` is complete; the repo is not deployed publicly (a one-command local Docker stack instead). Keep the recruiter-facing goals in mind: agents (LangGraph), MCP, hybrid RAG, evals, observability, guardrails, and full-stack delivery.
 
 **The user's cost rule:** keep OpenAI spend minimal (Week 2 total was under $0.01). Any script that calls an LLM must go through `app.observability.cost.CostTracker` with a hard `--budget-usd` cap, and must print its actual spend. Prefer local/free options (embeddings, reranker and retrieval evals are all local).
 
 ## Commands
 
-Infrastructure (from the repo root): `docker compose up -d --wait postgres redis`. The `backend` service is behind the `app` profile.
+Infrastructure (from the repo root): `docker compose up -d --wait postgres redis`. The full stack (`migrate` → `seed` → `backend` → `frontend`) is behind the `app` profile: `docker compose --profile app up --build`.
+- **Corpus snapshot:** `backend/seed/finsight-seed.dump` (filings, chunks, signed-off reports; `pg_dump -Fc`, needs `pg_restore` 17). `backend/scripts/restore_seed.sh` restores it into an empty migrated DB (used by the `seed` service and the Evals workflow). After re-ingesting, re-export it with `backend/scripts/export_seed.sh` and regenerate the golden set, because chunk IDs change.
+- **Line endings:** `.gitattributes` forces LF, because scripts and Dockerfiles run in Linux containers even from a Windows clone.
 
 Backend (run from `backend/`; uv manages the venv):
 - `uv sync`: install. torch comes from the CPU-only index configured in `pyproject.toml`.
@@ -21,11 +23,11 @@ Backend (run from `backend/`; uv manages the venv):
 - `uv run uvicorn app.main:app --reload`: `/search`, `/filings`, `/ingest`, `/research` (SSE), `/reports`, `/docs`. On **Windows** add `--loop asyncio:SelectorEventLoop`: psycopg (the LangGraph checkpointer) can't run on the default Proactor loop. `tests/conftest.py` does the same for pytest.
 - Research over SSE: `curl -N -X POST localhost:8000/research -H 'content-type: application/json' -d '{"question": "..."}'`, then `POST /research/{thread_id}/resume` with `{"action": "approve" | "edit" | "reject", "report"?}`. **Costs API credits** (capped per run by `RESEARCH_BUDGET_USD`, default $0.10).
 - `uv run python -m app.mcp.server [--http --port 8001]`: MCP server (stdio by default)
-- `uv run python -m evals.run_retrieval_evals`: free retrieval eval. It writes `evals/results/retrieval.md` and fails below `evals/thresholds.toml`.
+- `uv run python -m evals.run_retrieval_evals`: free retrieval eval. It writes `evals/results/retrieval.md`/`.json` and fails below `evals/thresholds.toml`. `--gated-only` (used by the CI **Evals** workflow) runs just hybrid+rerank and doesn't overwrite the committed results. `--thresholds FILE` lets you prove the gate fails.
 - `uv run python -m evals.generate_golden --force`: **costs API credits**. It regenerates `evals/golden_set.jsonl`; only rerun it deliberately.
 - `uv run python -m app.llm`: checks the OpenAI key and that the configured models exist.
 - `uv run python -m app.agents.cache`: backfills the semantic cache from approved reports (free, local embeddings); run it after a Redis reset.
-- `uv run python -m evals.run_answer_evals --n 8 --budget-usd 0.50`: **costs API credits**. It runs the full agent graph on golden questions and writes `evals/results/answers.md`. It is not in CI.
+- `uv run python -m evals.run_answer_evals --n 8 --budget-usd 0.50`: **costs API credits**. It runs the full agent graph on golden questions and writes `evals/results/answers.md`/`.json`. In CI it only runs via the manual **Answer evals** workflow (needs an `OPENAI_API_KEY` secret).
 
 Frontend (from `frontend/`): `npm run dev | lint | test | build` (vitest covers the pure `lib/` logic). It runs **Next.js 16**, which is newer than most training data. Follow `frontend/AGENTS.md` and read `frontend/node_modules/next/dist/docs/` before writing frontend code.
 

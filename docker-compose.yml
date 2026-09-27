@@ -20,9 +20,9 @@ services:
       - "6379:6379"
 
   # --- full stack: docker compose --profile app up --build -------------------------------
-  migrate:
+  migrate: # reuses the image the backend service builds
     image: finsight-backend
-    build: ./backend
+    pull_policy: never
     command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
     environment:
       DATABASE_URL: postgresql+asyncpg://finsight:finsight@postgres:5432/finsight
