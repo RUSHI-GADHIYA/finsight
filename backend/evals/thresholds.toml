@@ -1,0 +1,12 @@
+# Regression gate for evals/run_retrieval_evals.py (hybrid + rerank config).
+# Baseline 2026-09-25: Hit@5=0.84, MRR@10=0.62 on 25 questions (1 question = 0.04).
+# Set ~2 questions below baseline so real regressions fail and noise does not.
+[retrieval]
+min_hit_at_5 = 0.76
+min_mrr_at_10 = 0.55
+
+# Gate for evals/run_answer_evals.py (costs API credits; not run in CI yet).
+# Baseline 2026-09-26: faithfulness 1.00 (47/47 summary + claims), citation hit 0.88 on 8
+# questions; one claim is ~0.02. Set below baseline so a single judge disagreement does not fail.
+[answers]
+min_faithfulness = 0.90
