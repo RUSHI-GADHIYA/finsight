@@ -5,7 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.agents.state import Report
+from app.agents.state import Report, ReportContext
 from app.db.models import SavedReport
 from app.db.session import get_sessionmaker
 
@@ -17,6 +17,7 @@ class ReportOut(BaseModel):
     report: Report
     warnings: list[str]
     cost_usd: float
+    context: ReportContext | None  # None for reports saved before migration 0003
     created_at: datetime
 
 
@@ -28,6 +29,7 @@ def _out(row: SavedReport) -> ReportOut:
         report=Report.model_validate(row.report),
         warnings=row.warnings,
         cost_usd=row.cost_usd,
+        context=ReportContext.model_validate(row.context) if row.context else None,
         created_at=row.created_at,
     )
 
@@ -41,6 +43,7 @@ class PostgresReportStore:
         report: Report,
         warnings: list[str],
         cost_usd: float,
+        context: ReportContext,
     ) -> int:
         async with get_sessionmaker()() as session:
             # A resumed node re-runs from the top; if a retry lands after the insert, reuse it.
@@ -55,6 +58,7 @@ class PostgresReportStore:
                 report=report.model_dump(mode="json"),
                 warnings=warnings,
                 cost_usd=cost_usd,
+                context=context.model_dump(mode="json"),
             )
             session.add(row)
             await session.commit()

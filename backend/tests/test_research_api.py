@@ -73,7 +73,18 @@ async def test_research_streams_to_approval_then_resumes(
     assert finished[3:] == ["analyst", "critic"]
     assert "token" in kinds and "cost" in kinds
     thread_id = events[0][1]["thread_id"]
-    assert events[-1][1]["report"]["title"] == "NVDA vs AMD"
+    pending = events[-1][1]
+    assert pending["report"]["title"] == "NVDA vs AMD"
+    # the reviewer gets the cited passage text and the tables behind the figures
+    assert [s["citation"]["chunk_id"] for s in pending["context"]["sources"]] == [101]
+    assert "NVDA passage 101" in pending["context"]["sources"][0]["text"]
+    assert set(pending["context"]["financials"]) == {"NVDA"}
+
+    # a page refresh can recover the pending review from the checkpoint
+    status = (await client.get(f"/research/{thread_id}")).json()
+    assert status["status"] == "awaiting_approval"
+    assert status["question"] == "NVIDIA export control risks?"
+    assert status["pending"]["report"] == pending["report"]
 
     resumed = parse_sse(
         (await client.post(f"/research/{thread_id}/resume", json={"action": "approve"})).text
@@ -88,6 +99,32 @@ async def test_research_streams_to_approval_then_resumes(
             "cost_usd": 0.003,
         },
     )
+
+
+async def test_status_after_approval_and_for_unknown_threads(
+    service: ResearchService, client: httpx.AsyncClient
+) -> None:
+    events = parse_sse((await client.post("/research", json={"question": "NVDA risks?"})).text)
+    thread_id = events[0][1]["thread_id"]
+    await client.post(f"/research/{thread_id}/resume", json={"action": "approve"})
+
+    status = (await client.get(f"/research/{thread_id}")).json()
+    assert status["status"] == "approved"
+    assert status["pending"] is None
+    assert status["report_id"] == 1
+    assert (await client.get("/research/nope")).status_code == 404
+
+
+async def test_cors_allows_the_ui_origin(client: httpx.AsyncClient) -> None:
+    resp = await client.options(
+        "/research",
+        headers={
+            "origin": "http://localhost:3000",
+            "access-control-request-method": "POST",
+            "access-control-request-headers": "content-type",
+        },
+    )
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
 
 
 async def test_resume_rejects_unknown_thread_and_bad_edit(

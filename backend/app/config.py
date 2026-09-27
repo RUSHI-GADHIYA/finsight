@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     mcp_url: str | None = None
     research_budget_usd: float = 0.10  # hard cap per research run, all agents combined
     max_revisions: int = 2  # analyst <-> critic loops before the report goes to the human
+    # Browser origins allowed to call the API (the Next.js UI calls FastAPI directly, so
+    # SSE streams aren't buffered by a proxy).
+    cors_origins: list[str] = ["http://localhost:3000"]
 
     @property
     def checkpoint_database_url(self) -> str:

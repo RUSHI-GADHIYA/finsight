@@ -26,7 +26,7 @@ Backend (run from `backend/`; uv manages the venv):
 - `uv run python -m app.llm`: checks the OpenAI key and that the configured models exist.
 - `uv run python -m evals.run_answer_evals --n 8 --budget-usd 0.50`: **costs API credits**. It runs the full agent graph on golden questions and writes `evals/results/answers.md`. It is not in CI.
 
-Frontend (from `frontend/`): `npm run dev | lint | build`. It runs **Next.js 16**, which is newer than most training data. Follow `frontend/AGENTS.md` and read `frontend/node_modules/next/dist/docs/` before writing frontend code.
+Frontend (from `frontend/`): `npm run dev | lint | test | build` (vitest covers the pure `lib/` logic). It runs **Next.js 16**, which is newer than most training data. Follow `frontend/AGENTS.md` and read `frontend/node_modules/next/dist/docs/` before writing frontend code.
 
 ## Architecture notes
 
@@ -50,4 +50,9 @@ Frontend (from `frontend/`): `npm run dev | lint | build`. It runs **Next.js 16*
   - The critic runs free deterministic checks first: cited `chunk_id`s must have been retrieved, and figures must match the XBRL table. It then asks an LLM judge about the summary (claim 0) and every claim's wording. The judge must also check figure-only claims: correct numbers with the wrong direction ("expanded" when margins fell) happened in a live run.
   - Routing uses `Command(goto=...)`. `interrupt()` in `human_review` pauses for approval, and on resume the node re-runs from the top.
 - **Checkpoints:** `AsyncPostgresSaver` in the app, `InMemorySaver` in tests. Both use `checkpoint_serde()`, a msgpack **allowlist** built from `state.CHECKPOINT_TYPES`. **Add any new Pydantic type you put in graph state there**, or it is silently rebuilt as a plain dict on resume.
+- **Frontend** (`frontend/src/`): the browser calls FastAPI directly (`NEXT_PUBLIC_API_URL`, CORS via `settings.cors_origins`), so SSE isn't buffered by a proxy.
+  - `lib/sse.ts` reads `POST` SSE from `fetch`, because `EventSource` can only `GET`.
+  - `lib/research.ts` is a pure reducer from events to UI state. Its test replays a real recorded run (`lib/__fixtures__/research-run.json`), so update the fixture if event payloads change.
+  - Server pages call `await connection()` so they are never prerendered at build time (CI has no API).
+  - The design tokens (ledger/sheet/ink/graphite/rule/pencil) live in `globals.css`. The red "pencil" is reserved for tick marks, flags and sign-off.
 - **Config:** `app/config.py` (pydantic-settings) reads `.env` from either `backend/` or the repo root.

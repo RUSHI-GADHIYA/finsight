@@ -80,4 +80,6 @@ class SavedReport(Base):
     report: Mapped[dict[str, Any]] = mapped_column(JSONB)  # app.agents.state.Report
     warnings: Mapped[list[str]] = mapped_column(JSONB)
     cost_usd: Mapped[float] = mapped_column(Float)
+    # Cited passages + tables behind the figures (app.agents.state.ReportContext).
+    context: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

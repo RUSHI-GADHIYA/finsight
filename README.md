@@ -4,10 +4,12 @@ Ask a question like *"Compare NVIDIA and AMD's data-center risk factors and marg
 last 2 years"* and a team of AI agents researches SEC filings and market data, writes a cited
 analyst brief, fact-checks itself, and waits for your approval.
 
-> Status: **Week 3 of 5**. The agent pipeline works end to end over the API (SSE): supervisor,
-> parallel filings and market agents, analyst ⇄ critic fact-checking, and human approval, all
-> over 24 real 10-Ks (12 companies, ~4.4k passages). A research report costs about 1-4 cents.
-> The UI is next. See the roadmap below.
+> Status: **Week 4 of 5, in progress**. The research UI works end to end: ask a question,
+> watch the agents work live, read a cited report with a margins chart, then edit and sign
+> off. It runs over 24 real 10-Ks (12 companies, ~4.4k passages), and a report costs about
+> 1-4 cents. Guardrails, tracing and a semantic cache are next. See the roadmap below.
+
+![A signed-off FinSight report: red tick marks for verified claims, margins chart from SEC XBRL](docs/report.jpg)
 
 ## Architecture
 
@@ -47,7 +49,23 @@ curl -N -X POST localhost:8000/research -H 'content-type: application/json'   -d
 
 cd ../frontend
 npm install && npm run dev                                         # http://localhost:3000
+npm test                                                           # vitest: SSE parser + UI state
 ```
+
+## Research UI
+
+The Next.js app (`frontend/`) is designed as an auditor's workpaper:
+- The **agent trace** shows each step live as it streams over SSE, with the parallel data
+  agents, per-step cost and timing, and a token counter while the analyst writes.
+- The **report** puts a red-pencil tick beside every claim the critic verified and a "?"
+  beside any it couldn't. Numbered citations open the exact 10-K passage, with a link to
+  the filing on EDGAR.
+- **Figure chips** show the SEC XBRL numbers a claim uses, and a small-multiples chart
+  plots each company's margins.
+- **Sign-off:** approve, edit the wording (citations stay attached), or reject. Signed-off
+  reports get a stamp and appear under Signed-off reports.
+- **Reopening a run:** each run has its own URL (`/research/<id>`), restored from the
+  Postgres checkpoint, so a refresh or a server restart mid-review doesn't lose the review.
 
 ## Agents
 
@@ -145,7 +163,9 @@ Try it without a client: `npx @modelcontextprotocol/inspector uv run python -m a
 - [x] **Week 3: Agents.** LangGraph supervisor → parallel filings/market → analyst ⇄ critic →
       human approval (`interrupt`, Postgres checkpoints), SSE streaming, agents as MCP clients,
       per-run cost cap, answer eval
-- [ ] **Week 4: UI and production.** Research UI with live agent trace, guardrails, Langfuse, cost tracking, semantic cache
+- [ ] **Week 4: UI and production.** ✓ Research UI (live agent trace, cited report, charts,
+      edit and sign-off, reopen from checkpoint). Next: guardrails, audit log, Langfuse,
+      semantic cache, metrics
 - [ ] **Week 5: Ship.** Eval-gated CI, deployment (Vercel + Fly.io + Neon), demo video
 
 ## Tech stack

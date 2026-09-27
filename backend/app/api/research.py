@@ -2,6 +2,8 @@
 
 POST /research                       {"question": ...}          -> SSE stream
 POST /research/{thread_id}/resume    {"action": "approve"|"edit"|"reject", "report"?}
+GET  /research/{thread_id}           status (+ the pending review while paused)
+GET  /chunks/{chunk_id}              one cited passage
 GET  /reports, GET /reports/{id}
 """
 
@@ -13,11 +15,15 @@ from typing import Annotated, Literal, Self
 from fastapi import APIRouter, Depends, HTTPException, Request
 from langgraph.types import Command
 from pydantic import BaseModel, Field, model_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette import EventSourceResponse
 
-from app.agents.runner import Event, ResearchService
+from app.agents.runner import Event, ResearchService, RunStatus
 from app.agents.state import Report
 from app.agents.store import PostgresReportStore, ReportOut
+from app.db.session import get_session
+from app.rag import retrieval
+from app.rag.retrieval import RetrievedChunk
 
 router = APIRouter(tags=["research"])
 
@@ -68,6 +74,24 @@ async def resume(thread_id: str, body: ResumeRequest, service: Service) -> Event
         raise HTTPException(409, "This research run is not waiting for approval")
     decision = body.model_dump(mode="json", exclude_none=True)
     return EventSourceResponse(_sse(service.stream(thread_id, Command(resume=decision))))
+
+
+@router.get("/research/{thread_id}")
+async def research_status(thread_id: str, service: Service) -> RunStatus:
+    status = await service.run_status(thread_id)
+    if status is None:
+        raise HTTPException(404, f"No research run {thread_id}")
+    return status
+
+
+@router.get("/chunks/{chunk_id}")
+async def get_chunk(
+    chunk_id: int, session: Annotated[AsyncSession, Depends(get_session)]
+) -> RetrievedChunk:
+    chunk = await retrieval.get_chunk(session, chunk_id)
+    if chunk is None:
+        raise HTTPException(404, f"No chunk {chunk_id}")
+    return chunk
 
 
 @router.get("/reports")

@@ -21,6 +21,7 @@ from app.agents.state import (
     Critique,
     Figure,
     Report,
+    ReportContext,
     ResearchPlan,
     ResearchState,
 )
@@ -49,6 +50,7 @@ class ReportStore(Protocol):
         report: Report,
         warnings: list[str],
         cost_usd: float,
+        context: ReportContext,
     ) -> int: ...
 
 
@@ -423,14 +425,25 @@ async def critic(state: ResearchState, runtime: Ctx) -> Command[Literal["analyst
 # ------------------------------------------------------------------------- human review
 
 
+def report_context(state: ResearchState, report: Report) -> ReportContext:
+    cited = {cid for claim in report.claims() for cid in claim.chunk_ids}
+    return ReportContext(
+        sources=[c for c in state.get("evidence", []) if c.citation.chunk_id in cited],
+        financials=state.get("financials", {}),
+        prices=state.get("prices", {}),
+        errors=state.get("errors", []),
+    )
+
+
 async def human_review(state: ResearchState, runtime: Ctx) -> dict[str, Any]:
     # Pauses the run; the API resumes it with Command(resume={"action": ..., ...}).
     # On resume LangGraph re-runs this node from the top, and interrupt() returns the value.
     decision: dict[str, Any] = interrupt(
         {
+            "question": state["question"],
             "report": state["report"].model_dump(mode="json"),
+            "context": report_context(state, state["report"]).model_dump(mode="json"),
             "warnings": state.get("warnings", []),
-            "errors": state.get("errors", []),
             "cost_usd": round(state.get("cost_usd", 0.0), 6),
             "disclaimer": DISCLAIMER,
         }
@@ -451,5 +464,6 @@ async def human_review(state: ResearchState, runtime: Ctx) -> dict[str, Any]:
         report=report,
         warnings=state.get("warnings", []),
         cost_usd=state.get("cost_usd", 0.0),
+        context=report_context(state, report),
     )
     return {"report": report, "status": "approved", "report_id": report_id}

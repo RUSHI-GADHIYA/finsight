@@ -79,4 +79,6 @@ async def test_pause_survives_a_new_checkpointer_and_saves_report(
     assert saved is not None
     assert saved.thread_id == thread_id
     assert saved.report.sections[0].claims[0].chunk_ids == [101]
+    assert saved.context is not None
+    assert [c.citation.chunk_id for c in saved.context.sources] == [101]
     assert [r.id for r in await reports.recent()][0] == saved.id

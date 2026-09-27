@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any, cast
 
 from langgraph.types import Command, Interrupt
+from pydantic import BaseModel
 
 from app.agents.graph import ResearchGraph
 from app.agents.llm import AgentLLM, OpenAIAgentLLM
@@ -24,6 +25,16 @@ from app.observability.cost import BudgetExceeded, CostTracker
 log = logging.getLogger(__name__)
 
 Event = dict[str, Any]  # {"event": type, "data": payload}
+
+
+class RunStatus(BaseModel):
+    thread_id: str
+    question: str
+    status: str
+    pending: dict[str, Any] | None  # the awaiting_approval payload, while paused
+    report_id: int | None
+    message: str | None
+    cost_usd: float
 
 
 def summarize(node: str, update: dict[str, Any]) -> dict[str, Any]:
@@ -76,6 +87,26 @@ class ResearchService:
     async def awaiting_approval(self, thread_id: str) -> bool:
         snapshot = await self.graph.aget_state(self._config(thread_id))
         return "human_review" in snapshot.next
+
+    async def run_status(self, thread_id: str) -> RunStatus | None:
+        """Where a run stands, from its checkpoint (survives refreshes and restarts)."""
+        snapshot = await self.graph.aget_state(self._config(thread_id))
+        values = snapshot.values
+        if not values:
+            return None
+        pending = next((i.value for task in snapshot.tasks for i in task.interrupts), None)
+        status = values.get("status", "running")
+        if pending is not None:
+            status = "awaiting_approval"
+        return RunStatus(
+            thread_id=thread_id,
+            question=values.get("question", ""),
+            status=status,
+            pending=pending,
+            report_id=values.get("report_id"),
+            message=values.get("message"),
+            cost_usd=round(values.get("cost_usd", 0.0), 6),
+        )
 
     async def stream(
         self, thread_id: str, graph_input: ResearchState | Command[Any]

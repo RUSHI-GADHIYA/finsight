@@ -7,7 +7,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.agents.llm import StreamWriter, Tier
-from app.agents.state import Claim, Figure, Report, ReportSection, ResearchPlan
+from app.agents.state import Claim, Figure, Report, ReportContext, ReportSection, ResearchPlan
 from app.agents.tools import ToolCallError
 from app.rag.financials import FinancialYear
 from app.rag.market import MonthlyClose, PriceSummary
@@ -125,8 +125,11 @@ class FakeStore:
         report: Report,
         warnings: list[str],
         cost_usd: float,
+        context: ReportContext,
     ) -> int:
-        self.saved.append({"thread_id": thread_id, "report": report, "warnings": warnings})
+        self.saved.append(
+            {"thread_id": thread_id, "report": report, "warnings": warnings, "context": context}
+        )
         return len(self.saved)
 
 

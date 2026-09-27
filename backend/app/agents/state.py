@@ -68,6 +68,16 @@ class Report(BaseModel):
         return [claim for section in self.sections for claim in section.claims]
 
 
+class ReportContext(BaseModel):
+    """What a reader needs next to the report: the cited passages and the tables behind the
+    figures. Stored with approved reports; not part of graph state."""
+
+    sources: list[RetrievedChunk]
+    financials: dict[str, list[FinancialYear]]
+    prices: dict[str, PriceSummary]
+    errors: list[str]
+
+
 class ClaimVerdict(BaseModel):
     claim_id: int = Field(description="The number shown next to the claim")
     supported: bool
